@@ -1,268 +1,29 @@
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
-import seaborn as sns
-
 from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
-from sklearn.metrics import (
-    accuracy_score, classification_report,
-    confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import accuracy_score
+
+df = pd.read_csv('spam.csv', encoding='latin-1')[['v1','v2']]
+df.columns = ['label','message']
+
+df['label'] = df['label'].map({'ham':0, 'spam':1})
+
+X_train, X_test, y_train, y_test = train_test_split(
+    df['message'], df['label'], test_size=0.2, random_state=42
 )
 
-import re
-import string
-import warnings
-warnings.filterwarnings("ignore")
+vectorizer = TfidfVectorizer()
+X_train_vec = vectorizer.fit_transform(X_train)
+X_test_vec = vectorizer.transform(X_test)
 
+model = MultinomialNB()
+model.fit(X_train_vec, y_train)
 
-def load_data():
-    try:
-        df = pd.read_csv(
-            "SMSSpamCollection",
-            sep="\t",
-            header=None,
-            names=["label", "message"],
-            encoding="latin-1"
-        )
-        print(f"[✓] Dataset loaded: {len(df)} messages")
-    except FileNotFoundError:
-        print("[!] SMSSpamCollection file not found. Using built-in sample dataset.")
-        print("    Download the full dataset from:")
-        print("    https://archive.ics.uci.edu/ml/datasets/SMS+Spam+Collection\n")
-        df = pd.DataFrame({
-            "label": [
-                "ham", "ham", "ham", "ham", "ham",
-                "ham", "ham", "ham", "ham", "ham",
-                "spam", "spam", "spam", "spam", "spam",
-                "spam", "spam", "spam", "spam", "spam",
-                "ham", "ham", "ham", "spam", "spam",
-                "ham", "ham", "spam", "spam", "ham",
-                "ham", "spam", "ham", "ham", "spam",
-                "ham", "ham", "spam", "ham", "spam",
-            ],
-            "message": [
-                "Hey, are you coming to the lecture tomorrow?",
-                "Can you share your notes from today's class?",
-                "The assignment is due Friday, don't forget!",
-                "Let's meet at the library at 4 PM.",
-                "Professor moved the test to next Monday.",
-                "Did you understand the last topic in AI class?",
-                "I'll be 10 minutes late, save me a seat.",
-                "Can we form a study group for the exams?",
-                "The results for last semester are out.",
-                "Don't forget to submit the project report.",
-                "WINNER!! You have been selected for a FREE scholarship! Click now!",
-                "Congratulations! You've won a Rs.50,000 prize. Claim now!",
-                "FREE entry to win a brand new laptop. Text WIN to 80085.",
-                "URGENT: Your account will be suspended. Verify now at this link.",
-                "You have been pre-approved for a loan. Apply now!",
-                "Get rich quick! Earn Rs.10,000/day working from home.",
-                "Click here to claim your free gift card now!!!",
-                "Exclusive offer! Buy 1 get 10 FREE. Limited time only.",
-                "Your mobile number has won a FREE iPhone. Call now!",
-                "Cheap meds online! No prescription needed. Order now.",
-                "Are you joining the AI seminar this evening?",
-                "What time does the canteen close today?",
-                "I scored 87 in the midterm! How about you?",
-                "Make money fast! Invest Rs.500 and earn Rs.50,000!",
-                "LIMITED OFFER: 90% off on all courses. Enroll NOW!!",
-                "The wifi password changed, it is now campus2024.",
-                "I need help with the ML assignment question 3.",
-                "You have been chosen for an exclusive survey. Win prizes!",
-                "Dear student, you owe fees. Pay NOW to avoid suspension!",
-                "Are you free for a group project discussion tomorrow?",
-                "Check out the new timetable on the student portal.",
-                "Earn extra cash by just clicking ads. Rs.5000/day guaranteed.",
-                "Our next class has been shifted to room 204.",
-                "Can you proofread my essay before I submit?",
-                "FREE GIFT waiting for you! Verify your number now.",
-                "Let's grab lunch after the practical session.",
-                "I will submit the form on your behalf if you want.",
-                "ALERT: Virus detected on your device! Click to fix now!",
-                "When does registration for next semester open?",
-                "Congratulations! You are our 1,000,000th visitor. Claim prize!",
-            ]
-        })
-        print(f"[✓] Sample dataset loaded: {len(df)} messages")
-    return df
+y_pred = model.predict(X_test_vec)
 
+print("Accuracy:", accuracy_score(y_test, y_pred))
 
-def explore_data(df):
-    print("\n" + "="*50)
-    print("  EXPLORATORY DATA ANALYSIS")
-    print("="*50)
-
-    print("\n[Dataset Overview]")
-    print(df.head())
-
-    print("\n[Class Distribution]")
-    print(df["label"].value_counts())
-
-    fig, axes = plt.subplots(1, 2, figsize=(12, 4))
-
-    counts = df["label"].value_counts()
-    axes[0].bar(counts.index, counts.values, color=["#4CAF50", "#F44336"], edgecolor="black")
-    axes[0].set_title("Spam vs Ham Distribution", fontsize=13, fontweight="bold")
-    axes[0].set_xlabel("Label")
-    axes[0].set_ylabel("Count")
-    for i, v in enumerate(counts.values):
-        axes[0].text(i, v + 0.5, str(v), ha="center", fontweight="bold")
-
-    df["msg_length"] = df["message"].apply(len)
-    df[df["label"] == "ham"]["msg_length"].hist(
-        bins=20, ax=axes[1], alpha=0.7, label="Ham", color="#4CAF50"
-    )
-    df[df["label"] == "spam"]["msg_length"].hist(
-        bins=20, ax=axes[1], alpha=0.7, label="Spam", color="#F44336"
-    )
-    axes[1].set_title("Message Length Distribution", fontsize=13, fontweight="bold")
-    axes[1].set_xlabel("Message Length (characters)")
-    axes[1].set_ylabel("Frequency")
-    axes[1].legend()
-
-    plt.suptitle("Email Spam Detector — Data Analysis", fontsize=14, fontweight="bold")
-    plt.tight_layout()
-    plt.savefig("eda_analysis.png", dpi=150, bbox_inches="tight")
-    plt.show()
-    print("\n[✓] EDA chart saved as 'eda_analysis.png'")
-    return df
-
-
-def preprocess_text(text):
-    text = text.lower()
-    text = re.sub(r'\d+', '', text)
-    text = text.translate(str.maketrans('', '', string.punctuation))
-    text = re.sub(r'\s+', ' ', text).strip()
-    return text
-
-
-def preprocess_data(df):
-    print("\n" + "="*50)
-    print("  TEXT PREPROCESSING")
-    print("="*50)
-    df["clean_message"] = df["message"].apply(preprocess_text)
-    df["label_num"] = df["label"].map({"ham": 0, "spam": 1})
-    print("[✓] Text cleaned and labels encoded (ham=0, spam=1)")
-    print("\nSample cleaned messages:")
-    print(df[["message", "clean_message", "label"]].head(3).to_string(index=False))
-    return df
-
-
-def extract_features(df):
-    print("\n" + "="*50)
-    print("  FEATURE EXTRACTION (TF-IDF)")
-    print("="*50)
-
-    vectorizer = TfidfVectorizer(
-        max_features=3000,
-        stop_words="english",
-        ngram_range=(1, 2)
-    )
-    X = vectorizer.fit_transform(df["clean_message"])
-    y = df["label_num"]
-
-    print(f"[✓] TF-IDF matrix shape: {X.shape}")
-    print(f"    (rows = messages, cols = vocabulary features)")
-    return X, y, vectorizer
-
-
-def train_model(X, y):
-    print("\n" + "="*50)
-    print("  MODEL TRAINING (Naive Bayes)")
-    print("="*50)
-
-    X_train, X_test, y_train, y_test = train_test_split(
-        X, y, test_size=0.2, random_state=42, stratify=y
-    )
-    print(f"[✓] Train size: {X_train.shape[0]} | Test size: {X_test.shape[0]}")
-
-    model = MultinomialNB(alpha=1.0)
-    model.fit(X_train, y_train)
-    print("[✓] Model trained successfully!")
-
-    return model, X_train, X_test, y_train, y_test
-
-
-def evaluate_model(model, X_test, y_test):
-    print("\n" + "="*50)
-    print("  MODEL EVALUATION")
-    print("="*50)
-
-    y_pred = model.predict(X_test)
-    acc = accuracy_score(y_test, y_pred)
-
-    print(f"\nAccuracy : {acc * 100:.2f}%")
-    print("\nClassification Report:")
-    print(classification_report(y_test, y_pred, target_names=["Ham (Not Spam)", "Spam"]))
-
-    cm = confusion_matrix(y_test, y_pred)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=["Ham", "Spam"])
-    fig, ax = plt.subplots(figsize=(6, 5))
-    disp.plot(ax=ax, colorbar=False, cmap="Blues")
-    ax.set_title("Confusion Matrix — Spam Detector", fontsize=13, fontweight="bold")
-    plt.tight_layout()
-    plt.savefig("confusion_matrix.png", dpi=150, bbox_inches="tight")
-    plt.show()
-    print("\n[✓] Confusion matrix saved as 'confusion_matrix.png'")
-
-    return acc
-
-
-def predict_message(model, vectorizer, message):
-    cleaned = preprocess_text(message)
-    features = vectorizer.transform([cleaned])
-    prediction = model.predict(features)[0]
-    probability = model.predict_proba(features)[0]
-
-    label = "🚨 SPAM" if prediction == 1 else "✅ HAM (Not Spam)"
-    confidence = probability[prediction] * 100
-    return label, confidence
-
-
-def interactive_demo(model, vectorizer):
-    print("\n" + "="*50)
-    print("  INTERACTIVE SPAM CHECKER")
-    print("="*50)
-    print("Type any email/message to check if it's spam.")
-    print("Type 'quit' to exit.\n")
-
-    demo_messages = [
-        "Congratulations! You've won a FREE iPhone. Click to claim now!",
-        "Hey, can we meet at 5 PM for the project discussion?",
-        "URGENT: Verify your account or it will be suspended immediately!",
-        "The exam schedule for next semester has been released.",
-    ]
-
-    print("--- Demo Predictions ---")
-    for msg in demo_messages:
-        label, confidence = predict_message(model, vectorizer, msg)
-        print(f"\nMessage : {msg[:65]}...")
-        print(f"Result  : {label}  (Confidence: {confidence:.1f}%)")
-
-    print("\n--- Try Your Own ---")
-    while True:
-        user_input = input("\nEnter message (or 'quit'): ").strip()
-        if user_input.lower() == "quit":
-            print("Exiting. Goodbye!")
-            break
-        if not user_input:
-            continue
-        label, confidence = predict_message(model, vectorizer, user_input)
-        print(f"Result  : {label}  (Confidence: {confidence:.1f}%)")
-
-
-if __name__ == "__main__":
-    print("\n" + "="*50)
-    print("  SPAM DETECTOR FOR STUDENT EMAILS")
-    print("  Fundamentals of AI and ML — BYOP")
-    print("="*50)
-
-    df = load_data()
-    df = explore_data(df)
-    df = preprocess_data(df)
-    X, y, vectorizer = extract_features(df)
-    model, X_train, X_test, y_train, y_test = train_model(X, y)
-    evaluate_model(model, X_test, y_test)
-    interactive_demo(model, vectorizer)
+msg = ["Congratulations! You won a lottery"]
+msg_vec = vectorizer.transform(msg)
+print("Prediction:", model.predict(msg_vec))
